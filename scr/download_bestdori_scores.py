@@ -223,7 +223,7 @@ def load_failure_record(path: pathlib.Path) -> JSONDict:
         raw = path.read_text(encoding="utf-8")
         data = json.loads(raw)
         if not isinstance(data, dict):
-            raise ValueError("failure record is not a dict")
+            raise ValueError("失败记录不是对象(dict)")
     except Exception as e:
         print(f"[Warn] 读取失败记录失败，将新建记录：{path} -> {e}")
         return cast(JSONDict, {
@@ -358,7 +358,7 @@ def _handle_invalid_score_file(
         entry = _ensure_song_entry(download_record, song_id)
         cast(JSONDict, entry.get("difficulties", {}))[diff] = {
             "status": "pending",
-            "note": "invalid_content_but_ignored",
+            "note": "内容无效但已忽略",
             "checked_at": _now_iso(),
         }
         entry["updated_at"] = _now_iso()
@@ -544,7 +544,7 @@ def _validate_and_collect_already_saved(
             if prev_status not in ("ok", "n/a"):
                 diffs[diff] = {
                     "status": "n/a",
-                    "note": "not_available_per_api",
+                    "note": "API未声明存在",
                     "checked_at": _now_iso(),
                 }
                 dirty = True
@@ -575,7 +575,7 @@ def _validate_and_collect_already_saved(
                 download_record=record,
                 failure_record=failure_record,
                 url=cast(Optional[str], prev_url) if isinstance(prev_url, str) else None,
-                reason="invalid_header_on_disk",
+                reason="disk文件标头无效",
                 allow_record_failure=(diff != "special") or record_special_failures,
             )
             dirty = True
@@ -602,11 +602,11 @@ def _validate_and_collect_already_saved(
                 )
                 dirty = True
         else:
-            # 记录说 ok，但磁盘没有：回退为 pending
+            # 记录说 ok，但disk没有：回退为 pending
             if status == "ok":
                 entry["difficulties"][diff] = {
                     "status": "pending",
-                    "note": "recorded_ok_but_missing_on_disk",
+                    "note": "记录为成功但disk缺失",
                     "checked_at": _now_iso(),
                 }
                 dirty = True
@@ -657,7 +657,7 @@ def load_download_record(path: pathlib.Path) -> JSONDict:
         raw = path.read_text(encoding="utf-8")
         data = json.loads(raw)
         if not isinstance(data, dict):
-            raise ValueError("download record is not a dict")
+            raise ValueError("下载记录不是对象(dict)")
     except Exception as e:
         print(f"[Warn] 读取下载记录失败，将新建记录：{path} -> {e}")
         return cast(JSONDict, {
@@ -1000,7 +1000,7 @@ def http_probe_exists(url: str, timeout: int = 10) -> Optional[bool]:
 
 
 def local_existing_difficulties(dest_dir: pathlib.Path, expected_difficulties: Optional[List[str]] = None) -> set[str]:
-    """仅基于磁盘判断哪些难度文件已存在且非空。"""
+    """仅基于disk判断哪些难度文件已存在且非空。"""
     existing: set[str] = set()
     expected = expected_difficulties or list(DIFFICULTIES)
     for diff in expected:
@@ -1340,7 +1340,7 @@ def download_score(
             continue
         meta = asset_map.get(diff)
         if not meta:
-            print(f"[Skip] {song_id} missing meta for {diff}")
+            print(f"[Skip] {song_id} 缺少 {diff} 的元数据")
             continue
         bundle = meta['bundle']
         filename = meta['filename']
@@ -1359,7 +1359,7 @@ def download_score(
                         title_jp=title_jp,
                         dest_dir=dest_dir,
                         url=url,
-                        note="not_available_per_api_or_ignored",
+                        note="API未声明存在或已忽略",
                     )
                     save_download_record(DOWNLOAD_RECORD_PATH, download_record)
                 else:
@@ -1380,12 +1380,12 @@ def download_score(
                         title_en=title_en,
                         title_jp=title_jp,
                         url=url,
-                        reason="download_failed_or_empty",
+                        reason="下载失败或内容为空",
                     )
                     save_download_record(DOWNLOAD_RECORD_PATH, download_record)
                     save_failure_record(failure_record_path, failure_record)
             if diff == "special" and (not record_special_failures):
-                print(f"[Skip] {song_id} {diff} not available per api -> {url}")
+                print(f"[Skip] {song_id} {diff} API未声明存在 -> {url}")
             else:
                 print(f"[Fail] {song_id} {diff} -> {url}")
             continue
@@ -1424,45 +1424,45 @@ def download_score(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download Bestdori music scores")
+    parser = argparse.ArgumentParser(description="下载 Bestdori 歌曲谱面")
     parser.add_argument(
         "ids",
         nargs="*",
         default=[],
-        help="Song IDs. Supports space-separated and/or comma-separated. Example: 489 545 or 489,545",
+        help="歌曲 ID 列表，支持空格分隔或逗号分隔，例如：489 545 或 489,545",
     )
     parser.add_argument(
         "--print-urls",
         action="store_true",
-        help="Print resolved download URLs for each difficulty.",
+        help="打印解析出来的各难度下载链接（不一定存在）。",
     )
     parser.add_argument(
         "--no-probe",
         action="store_true",
-        help="When used with --print-urls, do not probe network; just print constructed URLs (may include non-existent).",
+        help="配合 --print-urls 使用：不做网络探测，只输出构造的链接（可能包含不存在的资源）。",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Do not download/write files or update JSON; can be combined with --print-urls.",
+        help="仅演练：不下载/不写文件/不更新 JSON，可与 --print-urls 组合使用。",
     )
     parser.add_argument(
         "--probe-timeout",
         type=int,
         default=6,
-        help="Timeout (seconds) for existence probes (Range request). Default: 6.",
+        help="探测资源是否存在的超时时间（秒，Range 请求），默认 6。",
     )
     parser.add_argument(
         "--download-timeout",
         type=int,
         default=25,
-        help="Timeout (seconds) for downloading a score file. Default: 25.",
+        help="下载谱面文件的超时时间（秒），默认 25。",
     )
     parser.add_argument(
         "--retries",
         type=int,
         default=2,
-        help="Retry count for network requests. Default: 2.",
+        help="网络请求重试次数，默认 2。",
     )
     args = parser.parse_args()
 
@@ -1483,8 +1483,8 @@ def main():
             except Exception:
                 print(f"[Warn] 无法解析命令行ID参数：{raw_tokens!r}，将使用内置 SONG_IDS")
 
-    print(f"Region: {REGION}")
-    print(f"Song IDs: {ids}")
+    print(f"区域: {REGION}")
+    print(f"歌曲ID: {ids}")
     if not args.dry_run:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1500,7 +1500,7 @@ def main():
         # Bestdori 的 songs/all JSON 里常见存在 id=0 的占位/站点名条目（非真实歌曲）。
         # 避免把它当作歌曲去解析/下载。
         if sid == 0:
-            print("[Skip] song id=0 is a placeholder entry (not a real song)")
+            print("[Skip] 歌曲ID=0 为占位条目（非真实歌曲）")
             continue
         # 若记录里已有 output_dir，则优先用它（避免再次解析标题导致目录名变化）
         entry0 = download_record.get("songs", {}).get(str(sid)) if isinstance(download_record.get("songs"), dict) else None
@@ -1536,7 +1536,7 @@ def main():
         # 歌名黑名单：过滤掉 Bestdori 的占位/站点名条目。
         # 该条目不会有谱面资源，继续流程只会制造噪音（失败记录/无效下载）。
         if isinstance(title_en, str) and title_en.strip().lower() in BLACKLIST_TITLES:
-            print(f"[Skip] {sid} title={title_en!r} is blacklisted (placeholder)")
+            print(f"[Skip] {sid} 标题={title_en!r} 为黑名单占位条目")
             continue
 
         print(f"[Meta] {sid} EN={title_en!r} JP={title_jp!r}")
@@ -1609,7 +1609,7 @@ def main():
                 else get_song_output_dir(sid, title_jp, title_en)
             )
 
-        # 校验记录与磁盘：对已存在的难度直接跳过
+        # 校验记录与disk：对已存在的难度直接跳过
         if args.dry_run:
             already_saved = local_existing_difficulties(dest_dir, expected_diffs)
         else:
@@ -1627,7 +1627,7 @@ def main():
 
         # 注意：即使本地全存在，若 --print-urls 也应继续解析并打印链接
         if already_saved == set(expected_diffs) and not args.print_urls:
-            print(f"[Skip] {sid} all difficulties already exist")
+            print(f"[Skip] {sid} 所有难度文件均已存在")
             continue
 
         asset_map: Dict[str, Dict[str, str]] = {}
@@ -1751,7 +1751,7 @@ def main():
                         title_jp=title_jp,
                         dest_dir=dest_dir,
                         url=last_tried_url if isinstance(last_tried_url, str) else None,
-                        note="not_available_per_api",
+                        note="API未声明存在",
                     )
                     save_download_record(DOWNLOAD_RECORD_PATH, download_record)
                 continue
@@ -1773,7 +1773,7 @@ def main():
                             title_jp=title_jp,
                             dest_dir=dest_dir,
                             url=last_tried_url if isinstance(last_tried_url, str) else None,
-                            note="not_available_per_api",
+                            note="API未声明存在",
                         )
                         save_download_record(DOWNLOAD_RECORD_PATH, download_record)
                         continue
@@ -1795,11 +1795,11 @@ def main():
                             title_en=title_en,
                             title_jp=title_jp,
                             url=last_tried_url,
-                            reason="no_valid_header_after_all_candidates",
+                            reason="所有候选均未获得有效标头",
                         )
                         save_download_record(DOWNLOAD_RECORD_PATH, download_record)
                         save_failure_record(failure_record_path, failure_record)
-                    print(f"[Fail] {sid} {diff} no valid header after all candidates")
+                    print(f"[Fail] {sid} {diff} 所有候选均未获得有效标头")
 
         if not asset_map:
             print(f"[Warn] 歌曲 {sid} info无法解析")
@@ -1846,7 +1846,7 @@ def main():
                         download_record=download_record,
                         failure_record=failure_record,
                         url=url0 if isinstance(url0, str) else None,
-                        reason="invalid_header_cached",
+                        reason="缓存内容标头无效",
                         allow_record_failure=(diff != "special") or record_special_failures,
                     )
                     save_download_record(DOWNLOAD_RECORD_PATH, download_record)
@@ -1862,7 +1862,7 @@ def main():
                         pre_saved_urls[diff] = build_assets_url(bundle=meta["bundle"], filename=meta["filename"])
                     except Exception:
                         pass
-                print(f"[OK] {sid} {diff} (cached) -> {out_path}")
+                print(f"[OK] {sid} {diff}（缓存） -> {out_path}")
 
                 _mark_difficulty_ok(
                     download_record,

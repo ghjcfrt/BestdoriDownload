@@ -1,10 +1,10 @@
-"""List all ids from _failures_cn_*.json.
+"""从 _failures_cn_*.json 中汇总所有失败歌曲 ID。
 
-Usage examples:
-  python ./scr/id_list.py
-  python ./scr/id_list.py --latest
-  python ./scr/id_list.py --file output/musiccore/_failures_cn_20260111_033831.json
-  python ./scr/id_list.py --glob output/musiccore/_failures_cn_*.json --out failures_ids.txt
+用法示例：
+	python ./scr/id_list.py
+	python ./scr/id_list.py --latest
+	python ./scr/id_list.py --file output/musiccore/_failures_cn_20260111_033831.json
+	python ./scr/id_list.py --glob output/musiccore/_failures_cn_*.json --out failures_ids.txt
 """
 
 from __future__ import annotations
@@ -81,29 +81,29 @@ def _pick_latest(paths: list[Path]) -> Path:
 
 
 def main() -> int:
-	parser = argparse.ArgumentParser(description="List all ids from _failures_cn_*.json")
+	parser = argparse.ArgumentParser(description="从 _failures_cn_*.json 中汇总所有失败歌曲 ID")
 	parser.add_argument(
 		"--file",
 		type=str,
 		default=None,
-		help="Specific failures json file path.",
+		help="指定单个 failures JSON 文件路径。",
 	)
 	parser.add_argument(
 		"--glob",
 		type=str,
 		default="output/musiccore/_failures_cn_*.json",
-		help="Glob pattern to search failures json files (ignored when --file is set).",
+		help="用于搜索 failures JSON 文件的 glob（指定 --file 时忽略）。",
 	)
 	parser.add_argument(
 		"--latest",
 		action="store_true",
-		help="When multiple files match --glob, only use the latest one.",
+		help="当 --glob 匹配到多个文件时，只使用最新的一个。",
 	)
 	parser.add_argument(
 		"--out",
 		type=str,
 		default=None,
-		help="Optional output text file path (one id per line).",
+		help="可选：输出到文本文件路径（每行一个 id）。",
 	)
 	args = parser.parse_args()
 
@@ -113,7 +113,7 @@ def main() -> int:
 		paths = sorted(Path().glob(args.glob))
 
 	if not paths:
-		raise SystemExit(f"No files found. file={args.file!r}, glob={args.glob!r}")
+		raise SystemExit(f"未找到文件。file={args.file!r}, glob={args.glob!r}")
 
 	if args.latest and len(paths) > 1:
 		paths = [_pick_latest(paths)]
@@ -129,7 +129,7 @@ def main() -> int:
 			all_ids.append(x)
 
 	text = "\n".join(all_ids)
-	print(f"count={len(all_ids)}")
+	print(f"数量={len(all_ids)}")
 	if text:
 		print(text)
 
