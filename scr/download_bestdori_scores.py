@@ -25,22 +25,30 @@ BLACKLIST_TITLES = {"bestdori", "bestdori!"}
 # https://bestdori.com/tool/explorer/asset/cn/musicscore
 # https://bestdori.com/info/songs/
 ASSET_TITLE_OVERRIDES: Dict[int, str] = {
-    4:"teardrop",
-    5:"sunsunseven",
-    12:"hashikimi",
-    13:"senkai",
-    19:"drepare",
-    21:"i-aru",
-    24:"miracle",
-    25:"kirayume",
-    30:"re_birthday",
-    40:"hapipa",
-    46:"littleBusters",
+    4: "teardrop",
+    5: "sunsunseven",
+    12: "hashikimi",
+    13: "senkai",
+    19: "drepare",
+    21: "i-aru",
+    24: "miracle",
+    25: "kirayume",
+    30: "re_birthday",
+    40: "hapipa",
+    46: "littleBusters",
     51: "singout",
     531: "ave_mujica",
+    604: "toridori_palette",
+    617: "koko_natsu",
+    637: "sign_b",
+    641: "high_touch",
+    643: "dokidoki_scary",
     659: "kiLL_kiSS",
-    
-    10003:"fangzhou",
+    711: "flame_of_hope_p",
+    741: "sekaiju_aozora",
+    742: "kimi_charmin",
+    743: "sincerely",
+    10003: "fangzhou",
 }
 """
 失败id列表，以供测试
@@ -48,7 +56,7 @@ ASSET_TITLE_OVERRIDES: Dict[int, str] = {
 ]
 
 cn未上线
-741, 742, 743, 746, 747, 748, 749, 750
+746, 747, 748, 749, 750
 special未上线
 56, 186, 189, 344, 413,
 """
@@ -81,7 +89,7 @@ def build_assets_url(*, bundle: str, filename: str) -> str:
 
     说明：all.7.json 的 jacketImage 偶尔会带内部空格（例如 "236_ aquarion"），
     若不编码，urllib 会把它当作非法 URL，导致 probe/download 失败。
-    
+
     - 仅编码路径段 `filename`，避免影响 bundle/region。
     - safe 中保留常见字符与 '%'，避免对已编码片段二次编码。
     """
@@ -111,7 +119,9 @@ def resolve_failure_record_path() -> pathlib.Path:
     return OUTPUT_DIR / f"{DOWNLOAD_FAILURE_BASENAME}_{_now_stamp_for_filename()}.json"
 
 
-def _resolve_output_dir_from_record(output_dir: Optional[str]) -> Optional[pathlib.Path]:
+def _resolve_output_dir_from_record(
+    output_dir: Optional[str],
+) -> Optional[pathlib.Path]:
     if not output_dir:
         return None
     try:
@@ -198,7 +208,6 @@ def _infer_bases_from_record_entry(entry: Any, already_saved: set[str]) -> List[
     return bases
 
 
-
 def is_valid_score_file(path: pathlib.Path) -> bool:
     """仅读取文件开头少量字节判断是否为有效谱面文件。"""
     try:
@@ -213,12 +222,15 @@ def is_valid_score_file(path: pathlib.Path) -> bool:
 
 def load_failure_record(path: pathlib.Path) -> JSONDict:
     if not path.exists():
-        return cast(JSONDict, {
-            "schema_version": 1,
-            "region": REGION,
-            "updated_at": _now_iso(),
-            "failures": {},
-        })
+        return cast(
+            JSONDict,
+            {
+                "schema_version": 1,
+                "region": REGION,
+                "updated_at": _now_iso(),
+                "failures": {},
+            },
+        )
     try:
         raw = path.read_text(encoding="utf-8")
         data = json.loads(raw)
@@ -226,12 +238,15 @@ def load_failure_record(path: pathlib.Path) -> JSONDict:
             raise ValueError("失败记录不是对象(dict)")
     except Exception as e:
         print(f"[Warn] 读取失败记录失败，将新建记录：{path} -> {e}")
-        return cast(JSONDict, {
-            "schema_version": 1,
-            "region": REGION,
-            "updated_at": _now_iso(),
-            "failures": {},
-        })
+        return cast(
+            JSONDict,
+            {
+                "schema_version": 1,
+                "region": REGION,
+                "updated_at": _now_iso(),
+                "failures": {},
+            },
+        )
     data.setdefault("schema_version", 1)
     data.setdefault("region", REGION)
     data.setdefault("failures", {})
@@ -249,7 +264,10 @@ def save_failure_record(path: pathlib.Path, data: JSONDict) -> None:
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    tmp.replace(path)
+    try:
+        _replace_with_retry(tmp, path)
+    except OSError as e:
+        print(f"[Warn] 写入失败记录失败，已保留临时文件：{tmp} -> {e}")
 
 
 def _record_failure(
@@ -457,7 +475,8 @@ def _mark_difficulty_ok(
 
     expected = _get_expected_difficulties_from_entry(entry)
     ok_count = sum(
-        1 for d in expected
+        1
+        for d in expected
         if isinstance(entry.get("difficulties", {}).get(d), dict)
         and entry["difficulties"][d].get("status") == "ok"
     )
@@ -574,7 +593,9 @@ def _validate_and_collect_already_saved(
                 out_path=out_path,
                 download_record=record,
                 failure_record=failure_record,
-                url=cast(Optional[str], prev_url) if isinstance(prev_url, str) else None,
+                url=cast(Optional[str], prev_url)
+                if isinstance(prev_url, str)
+                else None,
                 reason="disk文件标头无效",
                 allow_record_failure=(diff != "special") or record_special_failures,
             )
@@ -612,10 +633,13 @@ def _validate_and_collect_already_saved(
                 dirty = True
 
     # 基于“期望难度集合”刷新 complete，避免无 special 的曲目永远 complete=false。
-    expected_for_complete = expected_difficulties or _get_expected_difficulties_from_entry(entry)
+    expected_for_complete = (
+        expected_difficulties or _get_expected_difficulties_from_entry(entry)
+    )
     try:
         ok_count = sum(
-            1 for d in expected_for_complete
+            1
+            for d in expected_for_complete
             if isinstance(entry.get("difficulties", {}).get(d), dict)
             and entry["difficulties"][d].get("status") == "ok"
         )
@@ -646,12 +670,15 @@ def load_download_record(path: pathlib.Path) -> JSONDict:
     }
     """
     if not path.exists():
-        return cast(JSONDict, {
-            "schema_version": 2,
-            "region": REGION,
-            "updated_at": _now_iso(),
-            "songs": {},
-        })
+        return cast(
+            JSONDict,
+            {
+                "schema_version": 2,
+                "region": REGION,
+                "updated_at": _now_iso(),
+                "songs": {},
+            },
+        )
 
     try:
         raw = path.read_text(encoding="utf-8")
@@ -660,12 +687,15 @@ def load_download_record(path: pathlib.Path) -> JSONDict:
             raise ValueError("下载记录不是对象(dict)")
     except Exception as e:
         print(f"[Warn] 读取下载记录失败，将新建记录：{path} -> {e}")
-        return cast(JSONDict, {
-            "schema_version": 2,
-            "region": REGION,
-            "updated_at": _now_iso(),
-            "songs": {},
-        })
+        return cast(
+            JSONDict,
+            {
+                "schema_version": 2,
+                "region": REGION,
+                "updated_at": _now_iso(),
+                "songs": {},
+            },
+        )
 
     data.setdefault("schema_version", 2)
     data.setdefault("region", REGION)
@@ -703,13 +733,31 @@ def save_download_record(path: pathlib.Path, data: JSONDict) -> None:
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    tmp.replace(path)
+    try:
+        _replace_with_retry(tmp, path)
+    except OSError as e:
+        print(f"[Warn] 写入下载记录失败，已保留临时文件：{tmp} -> {e}")
+
+
+def _replace_with_retry(
+    src: pathlib.Path, dst: pathlib.Path, *, attempts: int = 5, delay: float = 0.2
+) -> None:
+    for attempt in range(attempts):
+        try:
+            src.replace(dst)
+            return
+        except OSError as e:
+            winerror = getattr(e, "winerror", None)
+            is_access_error = e.errno in (5, 13) or winerror in (5, 32)
+            if not is_access_error or attempt + 1 >= attempts:
+                raise
+            time.sleep(delay * (attempt + 1))
 
 
 def http_get(url: str, timeout: int = 20, *, quiet: bool = False) -> Optional[bytes]:
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-    })
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CONTEXT) as resp:
             try:
@@ -728,7 +776,9 @@ def http_get(url: str, timeout: int = 20, *, quiet: bool = False) -> Optional[by
     return None
 
 
-def http_get_with_retry(url: str, timeout: int = 20, retries: int = 2, backoff: float = 0.6) -> Optional[bytes]:
+def http_get_with_retry(
+    url: str, timeout: int = 20, retries: int = 2, backoff: float = 0.6
+) -> Optional[bytes]:
     """简单重试：用于网络偶发超时/握手超时时提高成功率。"""
     for attempt in range(retries + 1):
         # 只在最终失败时输出错误，避免“第 1 次失败但第 2 次成功”仍打印 [URLError] 的困惑。
@@ -737,7 +787,7 @@ def http_get_with_retry(url: str, timeout: int = 20, retries: int = 2, backoff: 
         if data is not None:
             return data
         if attempt < retries:
-            time.sleep(backoff * (2 ** attempt))
+            time.sleep(backoff * (2**attempt))
     # 最后一次已经按 quiet=False 记录过错误
     return None
 
@@ -948,10 +998,14 @@ def pick_asset_title(song_id: int, title_en: str, title_jp: Optional[str]) -> st
         try:
             if _is_legacy_no_id_filename(song_id):
                 # 1-50：比较时忽略标点；相同则不截断（用完整标题）
-                if _normalize_title_for_compare_ignore_punct(title_en) == _normalize_title_for_compare_ignore_punct(title_jp):
+                if _normalize_title_for_compare_ignore_punct(
+                    title_en
+                ) == _normalize_title_for_compare_ignore_punct(title_jp):
                     return title_en
             else:
-                if _normalize_title_for_compare(title_en) == _normalize_title_for_compare(title_jp):
+                if _normalize_title_for_compare(
+                    title_en
+                ) == _normalize_title_for_compare(title_jp):
                     parts = title_en.strip().split()
                     if parts:
                         first = parts[0].strip(",.;:!?\"'()[]{}")
@@ -969,12 +1023,15 @@ def http_probe_exists(url: str, timeout: int = 10) -> Optional[bool]:
     - False: 明确不存在 (404/403 等)
     - None: 网络问题/超时，不作判断
     """
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        # 站点对不存在资源可能返回 200 + HTML；probe 读一点内容做校验
-        # 部分谱面 HEADER FIELD 不在文件开头，因此读更多字节降低误判概率
-        "Range": "bytes=0-8191",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            # 站点对不存在资源可能返回 200 + HTML；probe 读一点内容做校验
+            # 部分谱面 HEADER FIELD 不在文件开头，因此读更多字节降低误判概率
+            "Range": "bytes=0-8191",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CONTEXT) as resp:
             if resp.status not in (200, 206):
@@ -999,7 +1056,9 @@ def http_probe_exists(url: str, timeout: int = 10) -> Optional[bool]:
         return None
 
 
-def local_existing_difficulties(dest_dir: pathlib.Path, expected_difficulties: Optional[List[str]] = None) -> set[str]:
+def local_existing_difficulties(
+    dest_dir: pathlib.Path, expected_difficulties: Optional[List[str]] = None
+) -> set[str]:
     """仅基于disk判断哪些难度文件已存在且非空。"""
     existing: set[str] = set()
     expected = expected_difficulties or list(DIFFICULTIES)
@@ -1020,6 +1079,7 @@ def folder_bucket(song_id: int) -> int:
 
 def _strip_tags(s: str) -> str:
     import re
+
     s = re.sub(r"<[^>]+>", "", s)
     s = re.sub(r"\s+", " ", s)
     return s.strip()
@@ -1033,7 +1093,8 @@ def extract_titles_from_info_html(html: bytes) -> Tuple[Optional[str], Optional[
     """
     import html as _html
     import re
-    text = html.decode('utf-8', errors='ignore')
+
+    text = html.decode("utf-8", errors="ignore")
 
     # 最稳的方式：直接在“可见文本”里匹配渲染出来的表格行。
     # 例如："| Title | Mayoiuta 迷星叫 |" / "| 标题 | ... |"
@@ -1074,13 +1135,19 @@ def extract_titles_from_info_html(html: bytes) -> Tuple[Optional[str], Optional[
         en = None
         jp = None
 
-        m_en = re.search(r"class=\"[^\"]*fg-grey-light[^\"]*\"[^>]*>\s*([^<]+)\s*<", cell_html, re.IGNORECASE)
+        m_en = re.search(
+            r"class=\"[^\"]*fg-grey-light[^\"]*\"[^>]*>\s*([^<]+)\s*<",
+            cell_html,
+            re.IGNORECASE,
+        )
         if m_en:
             en = _strip_tags(m_en.group(1)) or None
 
         # 抓取所有 div 的文本（去掉空白），取第一个非英文的作为 jp
         div_texts = []
-        for dm in re.finditer(r"<div[^>]*>(.*?)</div>", cell_html, re.IGNORECASE | re.DOTALL):
+        for dm in re.finditer(
+            r"<div[^>]*>(.*?)</div>", cell_html, re.IGNORECASE | re.DOTALL
+        ):
             t = _strip_tags(dm.group(1))
             if t:
                 div_texts.append(t)
@@ -1181,7 +1248,9 @@ def sanitize_filename(name: str, max_len: int = 120) -> str:
     return cleaned
 
 
-def get_song_output_dir(song_id: int, title_jp: Optional[str], title_en: Optional[str]) -> pathlib.Path:
+def get_song_output_dir(
+    song_id: int, title_jp: Optional[str], title_en: Optional[str]
+) -> pathlib.Path:
     """为每首歌创建输出目录：优先使用日文名作为文件夹名。
 
     若文件夹已存在且标记的 song_id 不同，则自动追加 _{song_id} 避免冲突。
@@ -1213,7 +1282,9 @@ def get_song_output_dir(song_id: int, title_jp: Optional[str], title_en: Optiona
     return dest_dir
 
 
-def get_song_output_dir_no_create(song_id: int, title_jp: Optional[str], title_en: Optional[str]) -> pathlib.Path:
+def get_song_output_dir_no_create(
+    song_id: int, title_jp: Optional[str], title_en: Optional[str]
+) -> pathlib.Path:
     """仅计算输出目录路径（不创建目录、不写 marker），用于 dry-run。"""
     base_name = sanitize_filename(title_jp or title_en or str(song_id))
     dest_dir = OUTPUT_DIR / base_name
@@ -1342,13 +1413,17 @@ def download_score(
         if not meta:
             print(f"[Skip] {song_id} 缺少 {diff} 的元数据")
             continue
-        bundle = meta['bundle']
-        filename = meta['filename']
+        bundle = meta["bundle"]
+        filename = meta["filename"]
         url = build_assets_url(bundle=bundle, filename=filename)
         content = http_get_with_retry(url, timeout=download_timeout, retries=retries)
         if not content:
             # 下载失败也应保留当时的下载链接，便于回溯/手动重试。
-            if download_record is not None and failure_record is not None and failure_record_path is not None:
+            if (
+                download_record is not None
+                and failure_record is not None
+                and failure_record_path is not None
+            ):
                 if diff == "special" and (not record_special_failures):
                     # special 未在 API 中声明存在：不写入 failures 文件，但仍在下载记录里保留 URL
                     _mark_difficulty_not_available(
@@ -1393,7 +1468,11 @@ def download_score(
         # 内容校验：文件开头必须有 HEADER FIELD
         if not is_valid_score_bytes(content):
             out_path = dest_dir / f"{diff}.txt"
-            if download_record is not None and failure_record is not None and failure_record_path is not None:
+            if (
+                download_record is not None
+                and failure_record is not None
+                and failure_record_path is not None
+            ):
                 _handle_invalid_score_file(
                     song_id=song_id,
                     diff=diff,
@@ -1481,7 +1560,9 @@ def main():
                     parts.extend([p for p in tok.replace(" ", "").split(",") if p])
                 ids = sorted({int(x) for x in parts})
             except Exception:
-                print(f"[Warn] 无法解析命令行ID参数：{raw_tokens!r}，将使用内置 SONG_IDS")
+                print(
+                    f"[Warn] 无法解析命令行ID参数：{raw_tokens!r}，将使用内置 SONG_IDS"
+                )
 
     print(f"区域: {REGION}")
     print(f"歌曲ID: {ids}")
@@ -1503,7 +1584,11 @@ def main():
             print("[Skip] 歌曲ID=0 为占位条目（非真实歌曲）")
             continue
         # 若记录里已有 output_dir，则优先用它（避免再次解析标题导致目录名变化）
-        entry0 = download_record.get("songs", {}).get(str(sid)) if isinstance(download_record.get("songs"), dict) else None
+        entry0 = (
+            download_record.get("songs", {}).get(str(sid))
+            if isinstance(download_record.get("songs"), dict)
+            else None
+        )
         dest_dir0: Optional[pathlib.Path] = None
         if isinstance(entry0, dict):
             dest_dir0 = _resolve_output_dir_from_record(entry0.get("output_dir"))
@@ -1546,7 +1631,9 @@ def main():
         expected_diffs = _ordered_difficulties_from_available(available_diffs)
         # special：只有当 API 明确声明存在 special 时，才将 special 的失败计入 failures。
         # 若 API 暂时不可用（available_diffs=None），按“可能存在”处理，避免误跳过。
-        record_special_failures = True if (available_diffs is None) else ("special" in available_diffs)
+        record_special_failures = (
+            True if (available_diffs is None) else ("special" in available_diffs)
+        )
 
         # 写入记录：保存该曲“实际存在的难度”，用于 complete 计算与后续跳过。
         if not args.dry_run:
@@ -1554,7 +1641,8 @@ def main():
             entry_expected["available_difficulties"] = expected_diffs
             try:
                 ok_count = sum(
-                    1 for d in expected_diffs
+                    1
+                    for d in expected_diffs
                     if isinstance(entry_expected.get("difficulties", {}).get(d), dict)
                     and entry_expected["difficulties"][d].get("status") == "ok"
                 )
@@ -1571,14 +1659,18 @@ def main():
         # 生成 song_name 候选：仅使用英文名（官方罗马音）
         # 例外：对少数 song_id 使用强制标题覆盖（ASSET_TITLE_OVERRIDES）。
         # 补充规则：若 JP 与 EN 相同，则只取 EN 的第一个单词（见 pick_asset_title）。
-        asset_title = ASSET_TITLE_OVERRIDES.get(sid) or pick_asset_title(sid, title_en, title_jp)
+        asset_title = ASSET_TITLE_OVERRIDES.get(sid) or pick_asset_title(
+            sid, title_en, title_jp
+        )
 
         # 保持现有规则优先：先用 pick_asset_title 的结果。
         # 但当 JP 与 EN 相同导致被截断为“首词”时，把完整英文名也作为后备候选，提升命中率。
         titles_for_assets: List[str] = [asset_title]
         try:
             if title_jp and (not _is_legacy_no_id_filename(sid)):
-                if _normalize_title_for_compare(title_en) == _normalize_title_for_compare(title_jp):
+                if _normalize_title_for_compare(
+                    title_en
+                ) == _normalize_title_for_compare(title_jp):
                     if asset_title != title_en:
                         titles_for_assets.append(title_en)
         except Exception:
@@ -1633,11 +1725,19 @@ def main():
         asset_map: Dict[str, Dict[str, str]] = {}
         cached_blobs: Dict[str, bytes] = {}
 
-        diffs_to_resolve = expected_diffs if args.print_urls else [d for d in expected_diffs if d not in already_saved]
+        diffs_to_resolve = (
+            expected_diffs
+            if args.print_urls
+            else [d for d in expected_diffs if d not in already_saved]
+        )
         # special 特例：即使 API 未声明 special，也至少尝试一次；若第一次失败，再用 all.7.json 判断
         # special 是否真实存在：不存在则直接跳过（不报 Fail、不写 failures），存在则继续尝试其他候选。
         runtime_expected_diffs = list(expected_diffs)
-        if (not args.print_urls) and ("special" not in diffs_to_resolve) and ("special" not in already_saved):
+        if (
+            (not args.print_urls)
+            and ("special" not in diffs_to_resolve)
+            and ("special" not in already_saved)
+        ):
             diffs_to_resolve.append("special")
             runtime_expected_diffs.append("special")
 
@@ -1705,7 +1805,11 @@ def main():
                         asset_map[diff] = {"bundle": bundle, "filename": filename}
                         break
                     # 第一次失败就检查 special 是否存在：若不存在直接跳过
-                    if diff == "special" and (not record_special_failures) and verdict is False:
+                    if (
+                        diff == "special"
+                        and (not record_special_failures)
+                        and verdict is False
+                    ):
                         skipped_special_due_to_api = True
                         break
                 else:
@@ -1715,15 +1819,30 @@ def main():
                     verdict = http_probe_exists(url, timeout=args.probe_timeout)
                     blob: Optional[bytes]
                     if verdict is True or verdict is None:
-                        blob = http_get_with_retry(url, timeout=args.download_timeout, retries=args.retries)
+                        blob = http_get_with_retry(
+                            url, timeout=args.download_timeout, retries=args.retries
+                        )
                     else:
-                        blob = http_get_with_retry(url, timeout=args.download_timeout, retries=args.retries) if high_confidence else None
+                        blob = (
+                            http_get_with_retry(
+                                url, timeout=args.download_timeout, retries=args.retries
+                            )
+                            if high_confidence
+                            else None
+                        )
 
                     # 若下载到了 HTML（站点壳/错误页），对高置信候选做额外重试，不直接切换命名规则。
-                    if blob is not None and (not is_valid_score_bytes(blob)) and _looks_like_html(blob) and high_confidence:
+                    if (
+                        blob is not None
+                        and (not is_valid_score_bytes(blob))
+                        and _looks_like_html(blob)
+                        and high_confidence
+                    ):
                         for attempt in range(2):
-                            time.sleep(0.8 * (2 ** attempt))
-                            blob2 = http_get_with_retry(url, timeout=args.download_timeout, retries=args.retries)
+                            time.sleep(0.8 * (2**attempt))
+                            blob2 = http_get_with_retry(
+                                url, timeout=args.download_timeout, retries=args.retries
+                            )
                             if blob2 is None:
                                 continue
                             blob = blob2
@@ -1762,7 +1881,11 @@ def main():
             else:
                 # 只有在“真实下载路径”下，才在所有候选方案都失败后写入失败记录。
                 # print-urls / dry-run 只能基于 HTTP 状态探测，无法校验内容标头。
-                if (not args.dry_run) and (not args.print_urls) and (not effective_no_probe):
+                if (
+                    (not args.dry_run)
+                    and (not args.print_urls)
+                    and (not effective_no_probe)
+                ):
                     if diff == "special" and (not record_special_failures):
                         # API 未声明存在 special：视为不适用，不写 failures，也不打印 Fail。
                         _mark_difficulty_not_available(
@@ -1772,7 +1895,9 @@ def main():
                             title_en=title_en,
                             title_jp=title_jp,
                             dest_dir=dest_dir,
-                            url=last_tried_url if isinstance(last_tried_url, str) else None,
+                            url=last_tried_url
+                            if isinstance(last_tried_url, str)
+                            else None,
                             note="API未声明存在",
                         )
                         save_download_record(DOWNLOAD_RECORD_PATH, download_record)
@@ -1847,7 +1972,8 @@ def main():
                         failure_record=failure_record,
                         url=url0 if isinstance(url0, str) else None,
                         reason="缓存内容标头无效",
-                        allow_record_failure=(diff != "special") or record_special_failures,
+                        allow_record_failure=(diff != "special")
+                        or record_special_failures,
                     )
                     save_download_record(DOWNLOAD_RECORD_PATH, download_record)
                     if diff != "special" or record_special_failures:
@@ -1859,7 +1985,9 @@ def main():
                 meta = asset_map.get(diff)
                 if isinstance(meta, dict):
                     try:
-                        pre_saved_urls[diff] = build_assets_url(bundle=meta["bundle"], filename=meta["filename"])
+                        pre_saved_urls[diff] = build_assets_url(
+                            bundle=meta["bundle"], filename=meta["filename"]
+                        )
                     except Exception:
                         pass
                 print(f"[OK] {sid} {diff}（缓存） -> {out_path}")
@@ -1926,7 +2054,9 @@ def main():
         print("info 不存在/不可用的 id：[]")
 
     # 2) 本次运行写入 failures 文件的 id（special 仅在 API 声明存在时才写入 failures）
-    failures_any = failure_record.get("failures") if isinstance(failure_record, dict) else None
+    failures_any = (
+        failure_record.get("failures") if isinstance(failure_record, dict) else None
+    )
     failure_ids: List[int] = []
     if isinstance(failures_any, dict):
         for k in failures_any.keys():
